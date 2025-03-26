@@ -100,7 +100,7 @@ class LLMService {
         }
         
         task.resume()
-
+    }
     
     func summarizeActivities(activities: [Item], completion: @escaping (Result<String, Error>) -> Void) {
         // 格式化活动记录，确保日期格式一致
@@ -129,9 +129,8 @@ class LLMService {
                 print("成功获取总结: \(content)")
             case .failure(let error):
                 print("总结生成失败: \(error.localizedDescription)")
-                if let nsError = error as NSError {
-                    print("错误域: \(nsError.domain), 错误码: \(nsError.code), 用户信息: \(nsError.userInfo)")
-                }
+                let nsError = error as NSError
+                print("错误域: \(nsError.domain), 错误码: \(nsError.code), 用户信息: \(nsError.userInfo)")
             }
             
             // 传递结果给原始回调
@@ -139,4 +138,3 @@ class LLMService {
         }
     }
 }
-
