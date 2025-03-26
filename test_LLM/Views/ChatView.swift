@@ -13,6 +13,7 @@ struct ChatView: View {
     @Query private var messages: [Message]
     @State private var newMessage: String = ""
     @State private var isLoading: Bool = false
+    @State private var showingClearConfirmation: Bool = false
     
     private let llmService = LLMService()
     @AppStorage("apiKey") private var apiKey: String = ""
@@ -67,11 +68,36 @@ struct ChatView: View {
             }
         }
         .navigationTitle("AI聊天")
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: showClearConfirmation) {
+                    Label("清空聊天", systemImage: "trash")
+                }
+                .disabled(messages.isEmpty)
+            }
+            #else
+            ToolbarItem {
+                Button(action: showClearConfirmation) {
+                    Label("清空聊天", systemImage: "trash")
+                }
+                .disabled(messages.isEmpty)
+            }
+            #endif
+        }
         .onAppear {
             llmService.setAPIKey(apiKey)
         }
         .onChange(of: apiKey) { _, newValue in
             llmService.setAPIKey(newValue)
+        }
+        .alert("确认清空聊天记录", isPresented: $showingClearConfirmation) {
+            Button("取消", role: .cancel) { }
+            Button("清空", role: .destructive) {
+                clearAllMessages()
+            }
+        } message: {
+            Text("此操作将删除所有聊天记录且无法恢复，是否继续？")
         }
     }
     
@@ -101,6 +127,18 @@ struct ChatView: View {
                     let errorMessage = Message(content: "错误: \(error.localizedDescription)", isUserMessage: false)
                     modelContext.insert(errorMessage)
                 }
+            }
+        }
+    }
+    
+    private func showClearConfirmation() {
+        showingClearConfirmation = true
+    }
+    
+    private func clearAllMessages() {
+        withAnimation {
+            for message in messages {
+                modelContext.delete(message)
             }
         }
     }
