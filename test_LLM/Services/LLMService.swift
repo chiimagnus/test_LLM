@@ -73,7 +73,7 @@ class LLMService {
     }
     
     func summarizeActivities(activities: [Item], completion: @escaping (Result<String, Error>) -> Void) {
-        let activitiesText = activities.map { "\($0.description) at \($0.timestamp)" }.joined(separator: "\n")
+        let activitiesText = activities.map { "\($0.activityDescription) at \($0.timestamp)" }.joined(separator: "\n")
         
         let messages: [[String: Any]] = [
             ["role": "system", "content": "你是一个助手，请根据用户的活动记录给出简短总结。"],

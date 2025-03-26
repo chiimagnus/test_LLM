@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct ChatView: View {
-    @Environment(.modelContext) private var modelContext
+    @Environment(\.modelContext) private var modelContext
     @Query private var messages: [Message]
     @State private var newMessage: String = ""
     @State private var isLoading: Bool = false

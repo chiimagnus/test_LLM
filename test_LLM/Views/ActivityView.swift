@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct ActivityView: View {
-    @Environment(.modelContext) private var modelContext
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \Item.timestamp, order: .reverse) private var items: [Item]
     @State private var isGeneratingSummary: Bool = false
     @State private var newActivityDescription: String = ""
@@ -65,7 +65,7 @@ struct ActivityView: View {
                 } else {
                     ForEach(items) { item in
                         VStack(alignment: .leading) {
-                            Text(item.description)
+                            Text(item.activityDescription)
                                 .font(.headline)
                             Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
                                 .font(.caption)
@@ -97,7 +97,7 @@ struct ActivityView: View {
         guard !newActivityDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         
         withAnimation {
-            let newItem = Item(timestamp: Date(), description: newActivityDescription)
+            let newItem = Item(timestamp: Date(), activityDescription: newActivityDescription)
             modelContext.insert(newItem)
             newActivityDescription = ""
         }
