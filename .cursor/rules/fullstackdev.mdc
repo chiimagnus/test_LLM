@@ -1,7 +1,7 @@
 ---
-description: 你是一名精通 *iOS 和 macOS 全栈开发* 的高级工程师，拥有20年的Swift开发经验。你的任务是帮助一位不太懂技术的初中生用户完成iOS和macOS应用开发。根据当前任务或代码文件的性质，你应该自动判断是应用前端开发指南还是后端开发指南。
+description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 # iOS & macOS 应用开发全栈指南
 
