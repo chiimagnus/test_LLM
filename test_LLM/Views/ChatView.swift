@@ -110,9 +110,18 @@ struct ChatView: View {
         isLoading = true
         
         // 准备消息历史
-        let messageHistory = messages.map { message in
+        // 添加系统消息作为第一条消息
+        var messageHistory: [[String: Any]] = [
+            ["role": "system", "content": "你是一个助手，请回答用户的问题。"]
+        ]
+        
+        // 添加用户和助手的对话历史
+        let userAssistantMessages = messages.map { message in
             ["role": message.isUserMessage ? "user" : "assistant", "content": message.content]
         }
+        
+        // 合并所有消息
+        messageHistory.append(contentsOf: userAssistantMessages)
         
         llmService.sendMessage(messages: messageHistory) { result in
             DispatchQueue.main.async {
