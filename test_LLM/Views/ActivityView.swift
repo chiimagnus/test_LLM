@@ -110,11 +110,11 @@ struct ActivityView: View {
         
         llmService.summarizeActivities(activities: items) { result in
             DispatchQueue.main.async {
-                isGeneratingSummary = false
+                self.isGeneratingSummary = false
                 
                 switch result {
                 case .success(let summary):
-                    if let firstItem = items.first {
+                    if let firstItem = self.items.first {
                         firstItem.summary = summary
                     }
                 case .failure(let error):

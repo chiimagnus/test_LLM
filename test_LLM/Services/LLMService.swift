@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftData
 
 // 简化的响应结构
 struct LLMResponse {
@@ -400,4 +401,80 @@ class LLMService {
         
         task.resume()
     }
+    
+    // MARK: - 活动总结功能
+    
+    /// 生成活动总结
+    /// - Parameters:
+    ///   - activities: 要总结的活动数组
+    ///   - completion: 完成回调，返回总结文本或错误
+    func summarizeActivities<T>(activities: [T], completion: @escaping (Result<String, Error>) -> Void) where T: HasActivityDescription {
+        // 格式化活动记录
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .short
+        dateFormatter.timeStyle = .short
+        
+        let activitiesText = activities.map { 
+            "\($0.activityDescription) at \(dateFormatter.string(from: $0.timestamp))"
+        }.joined(separator: "\n")
+        
+        // 构建消息
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": "你是一个助手，请根据用户的活动记录给出简短总结。"],
+            ["role": "user", "content": "以下是我的活动记录，请给出简短总结：\n\(activitiesText)"]
+        ]
+        
+        // 使用普通模式发送消息
+        self.sendMessage(messages: messages, completion: completion)
+    }
+    
+    /// 生成活动总结（带思考模式）
+    /// - Parameters:
+    ///   - activities: 要总结的活动数组
+    ///   - streamCallback: 流式回调，用于实时显示生成过程
+    ///   - completion: 完成回调，返回总结结果或错误
+    func summarizeActivitiesWithThinking<T>(
+        activities: [T], 
+        streamCallback: StreamCallback? = nil,
+        completion: @escaping (Result<LLMResponse, Error>) -> Void
+    ) where T: HasActivityDescription {
+        // 格式化活动记录
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .short
+        dateFormatter.timeStyle = .short
+        
+        let activitiesText = activities.map { 
+            "\($0.activityDescription) at \(dateFormatter.string(from: $0.timestamp))"
+        }.joined(separator: "\n")
+        
+        // 确保思考模式已开启
+        let previousThinkingMode = self.isThinkingEnabled
+        self.isThinkingEnabled = true
+        
+        // 构建消息
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": "你是一个助手，请详细思考并分析用户的活动记录，提供你的推理过程，然后给出有洞察力的总结。"],
+            ["role": "user", "content": "以下是我的活动记录，请给出简短总结：\n\(activitiesText)"]
+        ]
+        
+        // 使用思考模式发送消息
+        self.sendMessageWithThinking(
+            messages: messages, 
+            streamCallback: streamCallback,
+            completion: { [weak self] result in
+                // 恢复之前的思考模式设置
+                self?.isThinkingEnabled = previousThinkingMode
+                completion(result)
+            }
+        )
+    }
 }
+
+// 定义活动项目的协议
+protocol HasActivityDescription {
+    var activityDescription: String { get }
+    var timestamp: Date { get }
+}
+
+// 扩展Item实现协议
+extension Item: HasActivityDescription {}
