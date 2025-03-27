@@ -112,114 +112,165 @@ struct ActivityView: View {
     
     // 添加活动的视图
     private var addActivityView: some View {
-        NavigationView {
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Text("添加活动记录")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.primary)
+                
+                Spacer()
+            }
+            .padding()
+            .background(Color.secondary.opacity(0.1))
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 2)
+            
             Form {
-                Section(header: Text("活动内容")) {
+                Section(header: Text("活动内容").font(.headline)) {
                     TextEditor(text: $newActivityContent)
-                        .frame(minHeight: 100)
+                        .frame(minHeight: 120)
+                        .padding(.vertical, 8)
+                        .background(Color.secondary.opacity(0.05))
+                        .cornerRadius(8)
                 }
                 
-                Section(header: Text("选择标签")) {
+                Section(header: Text("选择标签").font(.headline)) {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
+                        HStack(spacing: 8) {
                             ForEach(predefinedTags, id: \.self) { tag in
                                 TagButton(tag: tag, isSelected: selectedTags.contains(tag)) {
-                                    if selectedTags.contains(tag) {
-                                        selectedTags.removeAll { $0 == tag }
-                                    } else {
-                                        selectedTags.append(tag)
+                                    withAnimation(.spring()) {
+                                        if selectedTags.contains(tag) {
+                                            selectedTags.removeAll { $0 == tag }
+                                        } else {
+                                            selectedTags.append(tag)
+                                        }
                                     }
                                 }
                             }
                         }
-                        .padding(.vertical, 5)
+                        .padding(.vertical, 4)
                     }
                 }
                 
-                Section(header: Text("添加自定义标签")) {
+                Section(header: Text("添加自定义标签").font(.headline)) {
                     HStack {
                         TextField("新标签", text: $newTag)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
                         
                         Button(action: {
                             let trimmedTag = newTag.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !trimmedTag.isEmpty && !selectedTags.contains(trimmedTag) {
-                                selectedTags.append(trimmedTag)
-                                newTag = ""
+                                withAnimation {
+                                    selectedTags.append(trimmedTag)
+                                    newTag = ""
+                                }
                             }
                         }) {
                             Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.accentColor)
                         }
                         .disabled(newTag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
                 
                 if !selectedTags.isEmpty {
-                    Section(header: Text("已选标签")) {
+                    Section(header: Text("已选标签").font(.headline)) {
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack {
+                            HStack(spacing: 8) {
                                 ForEach(selectedTags, id: \.self) { tag in
-                                    HStack {
+                                    HStack(spacing: 4) {
                                         Text(tag)
+                                            .font(.caption)
+                                            .foregroundColor(.white)
                                         
                                         Button(action: {
-                                            selectedTags.removeAll { $0 == tag }
+                                            withAnimation {
+                                                selectedTags.removeAll { $0 == tag }
+                                            }
                                         }) {
                                             Image(systemName: "xmark.circle.fill")
                                                 .font(.caption)
+                                                .foregroundColor(.white.opacity(0.8))
                                         }
                                     }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.blue.opacity(0.2))
-                                    .cornerRadius(8)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.accentColor)
+                                    .cornerRadius(12)
                                 }
                             }
-                            .padding(.vertical, 5)
+                            .padding(.vertical, 4)
                         }
                     }
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        showingAddActivity = false
-                    }
+            .padding(.horizontal)
+            
+            // 底部操作栏
+            HStack {
+                Button(action: {
+                    showingAddActivity = false
+                }) {
+                    Text("取消")
+                        .frame(maxWidth: .infinity)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        addActivity()
-                        showingAddActivity = false
-                    }
-                    .disabled(newActivityContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.bordered)
+                
+                Button(action: {
+                    addActivity()
+                    showingAddActivity = false
+                }) {
+                    Text("保存")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .disabled(newActivityContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .navigationTitle("添加活动记录")
+            .padding()
+            .background(Color.secondary.opacity(0.1))
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: -2)
         }
+        .frame(minWidth: 500, idealWidth: 600, maxWidth: .infinity,
+               minHeight: 500, idealHeight: 600, maxHeight: .infinity)
+        .background(Color.secondary.opacity(0.05))
     }
     
     // 总结视图
     private var summaryView: some View {
-        NavigationView {
-            VStack {
-                if isGeneratingSummary {
-                    ProgressView("正在生成总结...")
-                        .padding()
-                } else {
-                    ScrollView {
-                        Text(summaryContent)
-                            .padding()
-                    }
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Text("活动总结")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.primary)
+                
+                Spacer()
+                
+                Button(action: {
+                    showingSummary = false
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.secondary)
                 }
+                .buttonStyle(.plain)
             }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("关闭") {
-                        showingSummary = false
-                    }
-                }
+            .padding()
+            .background(Color.secondary.opacity(0.1))
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 2)
+            
+            ScrollView {
+                Text(summaryContent)
+                    .font(.body)
+                    .padding()
             }
-            .navigationTitle("活动总结")
+            .background(Color.secondary.opacity(0.05))
         }
+        .frame(minWidth: 400, idealWidth: 500, maxWidth: .infinity,
+               minHeight: 300, idealHeight: 400, maxHeight: .infinity)
+        .background(Color.secondary.opacity(0.05))
     }
     
     // 添加活动
