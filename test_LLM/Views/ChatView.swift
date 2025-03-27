@@ -1,6 +1,13 @@
 import SwiftUI
+import SwiftData
 
 struct ChatView: View {
+    // 获取SwiftData模型上下文
+    @Environment(\.modelContext) private var modelContext
+    
+    // 查询API密钥配置
+    @Query private var apiConfigs: [ApiKeyConfig]
+    
     @StateObject private var viewModel = ChatViewModel()
     @State private var showingApiKeyAlert = false
     @State private var apiKeyInput: String = ""
@@ -15,6 +22,10 @@ struct ChatView: View {
                 Spacer()
                 
                 Button(action: {
+                    // 预填充现有API密钥
+                    if let apiConfig = apiConfigs.first {
+                        apiKeyInput = apiConfig.key
+                    }
                     showingApiKeyAlert = true
                 }) {
                     Image(systemName: "key.fill")
@@ -116,6 +127,11 @@ struct ChatView: View {
             }
         } message: {
             Text("请输入硅基流动的 API 密钥")
+        }
+        .onAppear {
+            // 在视图出现时更新ViewModel的modelContext和API密钥
+            let initialApiKey = apiConfigs.first?.key ?? ""
+            viewModel.setupWithContext(modelContext: modelContext, apiKey: initialApiKey)
         }
     }
 }
