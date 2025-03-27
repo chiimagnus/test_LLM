@@ -14,17 +14,12 @@ struct ChatView: View {
                 
                 Spacer()
                 
-                Toggle("流式", isOn: $viewModel.useStreamingMode)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .padding(.horizontal, 4)
-                
                 Button(action: {
                     showingApiKeyAlert = true
                 }) {
                     Image(systemName: "key.fill")
                 }
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 8)
                 
                 Button(action: {
                     viewModel.clearChat()

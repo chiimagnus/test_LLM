@@ -29,12 +29,12 @@ struct SiliconFlowRequest: Encodable {
         case tools
     }
     
-    static func createDefault(messages: [ChatMessage], model: String = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", stream: Bool = false) -> SiliconFlowRequest {
+    static func createDefault(messages: [ChatMessage], model: String = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B") -> SiliconFlowRequest {
         return SiliconFlowRequest(
             model: model,
             messages: messages.map { APIMessage(from: $0) },
-            stream: stream,
-            maxTokens: 512,
+            stream: true,
+            maxTokens: 2048,
             stop: nil,
             temperature: 0.7,
             topP: 0.7,
