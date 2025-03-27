@@ -16,8 +16,6 @@
 Views/
 └── ContentView.swift
 
-Models/
-└── Item.swift
 
 
 
