@@ -10,17 +10,20 @@ import SwiftData
 
 struct ChatView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var messages: [Message]
+    @Query(sort: \Message.timestamp, order: .forward) private var messages: [Message]
     @State private var newMessage: String = ""
     @State private var isLoading: Bool = false
     @State private var showingClearConfirmation: Bool = false
+    @State private var isThinkingModeEnabled: Bool = false
+    @State private var currentResponse: String = ""
+    @State private var currentReasoning: String = ""
     
     private let llmService = LLMService()
     @AppStorage("apiKey") private var apiKey: String = ""
     
     var body: some View {
-        VStack {
-            if messages.isEmpty {
+        VStack(spacing: 0) {
+            if messages.isEmpty && !isLoading {
                 ContentUnavailableView {
                     Label("没有消息", systemImage: "message")
                 } description: {
@@ -29,43 +32,94 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
-                    List {
-                        ForEach(messages) { message in
-                            MessageRow(message: message)
-                                .id(message.id)
-                        }
-                    }
-                    .onChange(of: messages.count) { _, _ in
-                        if let lastMessage = messages.last {
-                            withAnimation {
-                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    ScrollView {
+                        LazyVStack {
+                            ForEach(messages) { message in
+                                MessageRow(message: message, showReasoning: isThinkingModeEnabled)
+                                    .id(message.id)
+                                    .padding(.horizontal)
+                                    .padding(.vertical, 4)
+                            }
+                            
+                            // 显示当前正在流式生成的回复
+                            if isLoading {
+                                HStack {
+                                    Image(systemName: "brain.head.profile")
+                                        .font(.title)
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        if isThinkingModeEnabled && !currentReasoning.isEmpty {
+                                            Text("思考过程:")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                            Text(currentReasoning)
+                                                .padding()
+                                                .background(Color.yellow.opacity(0.2))
+                                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        }
+                                        
+                                        if !currentResponse.isEmpty {
+                                            Text(currentResponse)
+                                                .padding()
+                                                .background(Color.gray.opacity(0.2))
+                                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        } else {
+                                            ProgressView()
+                                                .padding()
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                .id("loading")
+                                .padding(.horizontal)
+                                .padding(.vertical, 4)
                             }
                         }
+                        .padding(.vertical)
+                    }
+                    .onChange(of: messages.count) { _, _ in
+                        scrollToBottom(proxy: proxy)
+                    }
+                    .onChange(of: currentResponse) { _, _ in
+                        scrollToBottom(proxy: proxy)
+                    }
+                    .onChange(of: currentReasoning) { _, _ in
+                        scrollToBottom(proxy: proxy)
                     }
                 }
             }
             
-            HStack {
-                TextField("输入消息...", text: $newMessage)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .disabled(isLoading)
-                
-                Button(action: sendMessage) {
-                    Image(systemName: isLoading ? "hourglass" : "paperplane.fill")
-                }
-                .disabled(newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
-            }
-            .padding()
+            Divider()
             
-            if apiKey.isEmpty {
+            VStack(spacing: 8) {
+                // 思考模式开关
+                Toggle("思考模式", isOn: $isThinkingModeEnabled)
+                    .onChange(of: isThinkingModeEnabled) { _, newValue in
+                        llmService.setThinkingEnabled(newValue)
+                    }
+                    .padding(.horizontal)
+                
                 HStack {
-                    Text("请设置API密钥:")
-                    SecureField("API密钥", text: $apiKey)
+                    TextField("输入消息...", text: $newMessage)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .disabled(isLoading)
+                    
+                    Button(action: sendMessage) {
+                        Image(systemName: isLoading ? "hourglass" : "paperplane.fill")
+                    }
+                    .disabled(newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
                 }
                 .padding(.horizontal)
-                .padding(.bottom)
+                
+                if apiKey.isEmpty {
+                    HStack {
+                        Text("请设置API密钥:")
+                        SecureField("API密钥", text: $apiKey)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                    }
+                    .padding(.horizontal)
+                }
             }
+            .padding(.vertical, 8)
         }
         .navigationTitle("AI聊天")
         .toolbar {
@@ -87,6 +141,7 @@ struct ChatView: View {
         }
         .onAppear {
             llmService.setAPIKey(apiKey)
+            llmService.setThinkingEnabled(isThinkingModeEnabled)
         }
         .onChange(of: apiKey) { _, newValue in
             llmService.setAPIKey(newValue)
@@ -101,6 +156,18 @@ struct ChatView: View {
         }
     }
     
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        if isLoading {
+            withAnimation {
+                proxy.scrollTo("loading", anchor: .bottom)
+            }
+        } else if let lastMessage = messages.last {
+            withAnimation {
+                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+            }
+        }
+    }
+    
     private func sendMessage() {
         guard !newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         
@@ -108,6 +175,8 @@ struct ChatView: View {
         modelContext.insert(userMessage)
         newMessage = ""
         isLoading = true
+        currentResponse = ""
+        currentReasoning = ""
         
         // 准备消息历史
         // 添加系统消息作为第一条消息
@@ -123,21 +192,46 @@ struct ChatView: View {
         // 合并所有消息
         messageHistory.append(contentsOf: userAssistantMessages)
         
-        llmService.sendMessage(messages: messageHistory) { result in
-            DispatchQueue.main.async {
-                isLoading = false
-                
+        // 使用支持思考模式和流式输出的方法，并添加流式更新回调
+        llmService.sendMessageWithThinking(
+            messages: messageHistory,
+            streamCallback: { content, reasoning in
+                // 更新UI显示的实时内容
+                self.currentResponse = content
+                if let reasoning = reasoning {
+                    self.currentReasoning = reasoning
+                }
+            },
+            completion: { result in
                 switch result {
                 case .success(let response):
-                    let assistantMessage = Message(content: response, isUserMessage: false)
-                    modelContext.insert(assistantMessage)
+                    DispatchQueue.main.async {
+                        // 保存完整响应
+                        let assistantMessage = Message(
+                            content: response.content,
+                            isUserMessage: false,
+                            reasoningContent: response.reasoningContent
+                        )
+                        self.modelContext.insert(assistantMessage)
+                        self.isLoading = false
+                        self.currentResponse = ""
+                        self.currentReasoning = ""
+                    }
                     
                 case .failure(let error):
-                    let errorMessage = Message(content: "错误: \(error.localizedDescription)", isUserMessage: false)
-                    modelContext.insert(errorMessage)
+                    DispatchQueue.main.async {
+                        let errorMessage = Message(
+                            content: "错误: \(error.localizedDescription)",
+                            isUserMessage: false
+                        )
+                        self.modelContext.insert(errorMessage)
+                        self.isLoading = false
+                        self.currentResponse = ""
+                        self.currentReasoning = ""
+                    }
                 }
             }
-        }
+        )
     }
     
     private func showClearConfirmation() {
@@ -155,29 +249,47 @@ struct ChatView: View {
 
 struct MessageRow: View {
     let message: Message
+    let showReasoning: Bool
     
     var body: some View {
-        HStack {
-            if message.isUserMessage {
-                Spacer()
-                Text(message.content)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                Image(systemName: "person.circle.fill")
-                    .font(.title)
-            } else {
-                Image(systemName: "brain.head.profile")
-                    .font(.title)
-                Text(message.content)
-                    .padding()
-                    .background(Color.gray.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                Spacer()
+        VStack(alignment: message.isUserMessage ? .trailing : .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                if !message.isUserMessage {
+                    Image(systemName: "brain.head.profile")
+                        .font(.title)
+                        .foregroundColor(.blue)
+                }
+                
+                VStack(alignment: message.isUserMessage ? .trailing : .leading, spacing: 8) {
+                    // 先显示思考内容（如果有）
+                    if showReasoning && !message.isUserMessage, let reasoning = message.reasoningContent, !reasoning.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("思考过程:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(reasoning)
+                                .padding()
+                                .background(Color.yellow.opacity(0.2))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                    
+                    // 显示正文内容
+                    Text(message.content)
+                        .padding()
+                        .background(message.isUserMessage ? Color.blue : Color.gray.opacity(0.2))
+                        .foregroundColor(message.isUserMessage ? .white : .primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                
+                if message.isUserMessage {
+                    Image(systemName: "person.circle.fill")
+                        .font(.title)
+                        .foregroundColor(.blue)
+                }
             }
         }
-        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: message.isUserMessage ? .trailing : .leading)
     }
 }
 

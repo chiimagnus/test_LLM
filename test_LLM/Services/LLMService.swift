@@ -18,6 +18,9 @@ struct LLMResponse {
     }
 }
 
+// 用于流式输出的回调
+typealias StreamCallback = (String, String?) -> Void
+
 class LLMService {
     private let apiURL = "https://api.siliconflow.cn/v1/chat/completions"
     private var apiKey: String = "" // 需要用户提供API密钥
@@ -45,9 +48,10 @@ class LLMService {
         }
     }
     
-    // 新方法支持思考模式，现在强制使用流式输出
+    // 新方法支持思考模式和流式输出，添加实时流式回调
     func sendMessageWithThinking(
         messages: [[String: Any]], 
+        streamCallback: StreamCallback? = nil,
         completion: @escaping (Result<LLMResponse, Error>) -> Void
     ) {
         guard !apiKey.isEmpty else {
@@ -81,22 +85,29 @@ class LLMService {
         request.httpBody = jsonData
         
         // 处理流式响应
-        handleStreamResponse(request: request, completion: completion)
+        handleStreamResponse(request: request, streamCallback: streamCallback, completion: completion)
     }
     
     // 处理流式响应
-    private func handleStreamResponse(request: URLRequest, completion: @escaping (Result<LLMResponse, Error>) -> Void) {
+    private func handleStreamResponse(request: URLRequest, streamCallback: StreamCallback? = nil, completion: @escaping (Result<LLMResponse, Error>) -> Void) {
         var contentBuilder = ""
         var reasoningContentBuilder = ""
         
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        // 创建URLSession的数据任务
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
             if let error = error {
-                completion(.failure(error))
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
                 return
             }
             
             guard let data = data else {
-                completion(.failure(NSError(domain: "LLMService", code: 500, userInfo: [NSLocalizedDescriptionKey: "没有返回数据"])))
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "LLMService", code: 500, userInfo: [NSLocalizedDescriptionKey: "没有返回数据"])))
+                }
                 return
             }
             
@@ -129,14 +140,26 @@ class LLMService {
                            let firstChoice = choices.first,
                            let delta = firstChoice["delta"] as? [String: Any] {
                             
+                            var contentUpdated = false
+                            var reasoningUpdated = false
+                            
                             // 添加内容增量
                             if let contentDelta = delta["content"] as? String {
                                 contentBuilder += contentDelta
+                                contentUpdated = true
                             }
                             
                             // 如果启用了思考模式，才收集思考内容
                             if self.isThinkingEnabled, let reasoningDelta = delta["reasoning_content"] as? String {
                                 reasoningContentBuilder += reasoningDelta
+                                reasoningUpdated = true
+                            }
+                            
+                            // 回调实时数据
+                            if (contentUpdated || reasoningUpdated) && streamCallback != nil {
+                                DispatchQueue.main.async {
+                                    streamCallback?(contentBuilder, self.isThinkingEnabled ? reasoningContentBuilder : nil)
+                                }
                             }
                         }
                     }
@@ -168,6 +191,7 @@ class LLMService {
     // 支持思考模式的活动总结方法
     func summarizeActivitiesWithThinking(
         activities: [Item], 
+        streamCallback: StreamCallback? = nil,
         completion: @escaping (Result<LLMResponse, Error>) -> Void
     ) {
         // 格式化活动记录，确保日期格式一致
@@ -189,6 +213,6 @@ class LLMService {
             ["role": "user", "content": "以下是我的活动记录，请给出简短总结：\n\(activitiesText)"]
         ]
         
-        self.sendMessageWithThinking(messages: messages, completion: completion)
+        self.sendMessageWithThinking(messages: messages, streamCallback: streamCallback, completion: completion)
     }
 }
