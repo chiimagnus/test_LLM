@@ -48,6 +48,49 @@ class LLMService {
         }
     }
     
+    // 修复空响应问题 - 确保在奇偶轮次都能正常工作
+    private func prepareMessageHistory(messages: [[String: Any]]) -> [[String: Any]] {
+        // 创建副本，避免修改原始消息
+        var processedMessages = [[String: Any]]()
+        var systemMessages = [[String: Any]]()
+        var userAssistantMessages = [[String: Any]]()
+        
+        // 整理消息，确保系统消息在前，用户-助手对话保持正确顺序
+        for message in messages {
+            if let role = message["role"] as? String {
+                if role == "system" {
+                    systemMessages.append(message)
+                } else {
+                    userAssistantMessages.append(message)
+                }
+            }
+        }
+        
+        // 先添加系统消息
+        processedMessages.append(contentsOf: systemMessages)
+        
+        // 再按顺序添加用户-助手消息
+        processedMessages.append(contentsOf: userAssistantMessages)
+        
+        // 确保处理后的消息不为空，并且包含用户输入
+        if processedMessages.isEmpty || !containsUserMessage(messages: processedMessages) {
+            print("警告: 处理后的消息历史为空或不包含用户消息")
+            return messages // 返回原始消息以确保至少包含用户输入
+        }
+        
+        return processedMessages
+    }
+    
+    // 检查消息数组是否包含用户消息
+    private func containsUserMessage(messages: [[String: Any]]) -> Bool {
+        for message in messages {
+            if let role = message["role"] as? String, role == "user" {
+                return true
+            }
+        }
+        return false
+    }
+    
     // 新方法支持思考模式和流式输出，添加实时流式回调
     func sendMessageWithThinking(
         messages: [[String: Any]], 
@@ -64,13 +107,19 @@ class LLMService {
             return
         }
         
+        // 预处理消息历史，确保顺序正确
+        let processedMessages = prepareMessageHistory(messages: messages)
+        
         // 根据硅基流动API文档构建请求体
         var requestBody: [String: Any] = [
             "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
-            "messages": messages,
-            "temperature": 0.7,
+            "messages": processedMessages,
+            "temperature": isThinkingEnabled ? 0.8 : 0.7, // 思考模式下使用略高的温度
+            "top_p": isThinkingEnabled ? 0.9 : 0.7, // 思考模式下使用较高的top_p
             "stream": true, // 强制使用流式输出
-            "max_tokens": 512
+            "max_tokens": 512,
+            // 添加唯一请求标识，确保每次请求都不同，防止缓存问题
+            "user": UUID().uuidString + "-\(Date().timeIntervalSince1970)"
         ]
         
         // 为思考模式添加特殊参数
@@ -78,7 +127,7 @@ class LLMService {
             // 使用更具针对性的系统提示，明确要求模型提供推理过程
             let thinkingSystemMessage = [
                 "role": "system",
-                "content": "你需要展示详细的思考过程。请先进行详尽的推理分析，将推理过程写在reasoning_content中，然后给出最终回答写在content中。即使是简单问题，也请提供思考过程。"
+                "content": "你需要展示详细的思考过程。请先进行详尽的推理分析，然后给出最终回答。即使是简单问题，也请提供思考过程。"
             ]
             
             // 清理历史消息，仅保留最近的对话以减少干扰
@@ -124,11 +173,46 @@ class LLMService {
                     if let role2 = msg2["role"] as? String, role2 == "system" {
                         return false
                     }
-                    return false // 默认情况保持原顺序
+                    
+                    // 确保原始消息顺序保持不变，所以直接返回false
+                    return false
                 }
                 
-                // 替换为裁剪后的消息
-                requestBody["messages"] = trimmedMessages
+                // 修复消息顺序问题 - 重新排序非系统消息，按照对话轮次排序
+                var systemMessages = [[String: Any]]()
+                var conversationMessages = [[String: Any]]()
+                
+                // 先分离系统消息和对话消息
+                for message in trimmedMessages {
+                    if let role = message["role"] as? String, role == "system" {
+                        systemMessages.append(message)
+                    } else {
+                        conversationMessages.append(message)
+                    }
+                }
+                
+                // 重新组合消息，系统消息在前，对话消息按原顺序
+                trimmedMessages = systemMessages
+                trimmedMessages.append(contentsOf: conversationMessages)
+                
+                // 确保至少包含最新的用户消息
+                let containsUserMessage = trimmedMessages.contains { message in
+                    if let role = message["role"] as? String, role == "user" {
+                        return true
+                    }
+                    return false
+                }
+                
+                if !containsUserMessage && !messages.isEmpty {
+                    // 找到最新的用户消息并添加
+                    for i in (0..<messages.count).reversed() {
+                        let message = messages[i]
+                        if let role = message["role"] as? String, role == "user" {
+                            trimmedMessages.append(message)
+                            break
+                        }
+                    }
+                }
                 
                 // 如果没有系统消息，添加思考系统消息
                 var hasSystemMessage = false
@@ -144,6 +228,9 @@ class LLMService {
                     newMessages.append(thinkingSystemMessage)
                     newMessages.append(contentsOf: trimmedMessages)
                     requestBody["messages"] = newMessages
+                } else {
+                    // 有系统消息，直接使用重排序后的消息
+                    requestBody["messages"] = trimmedMessages
                 }
             } else {
                 // 消息不多，检查是否有系统消息，如果没有则添加
@@ -153,13 +240,8 @@ class LLMService {
                 for message in messages {
                     if let role = message["role"] as? String, role == "system" {
                         hasSystemMessage = true
-                        // 修改现有系统消息
-                        var modifiedMessage = message
-                        if var content = message["content"] as? String {
-                            content = "你需要展示详细的思考过程。请先进行详尽的推理分析，将推理过程写在reasoning_content中，然后给出最终回答写在content中。即使是简单问题，也请提供思考过程。" + content
-                            modifiedMessage["content"] = content
-                        }
-                        updatedMessages.append(modifiedMessage)
+                        // 替换现有系统消息而不是修改
+                        updatedMessages.append(thinkingSystemMessage)
                     } else {
                         updatedMessages.append(message)
                     }
@@ -170,13 +252,35 @@ class LLMService {
                     updatedMessages.insert(thinkingSystemMessage, at: 0)
                 }
                 
+                // 确保至少包含一条用户消息
+                let hasUserMessage = updatedMessages.contains { message in
+                    if let role = message["role"] as? String, role == "user" {
+                        return true
+                    }
+                    return false
+                }
+                
+                if !hasUserMessage && !messages.isEmpty {
+                    // 找到最新的用户消息
+                    for i in (0..<messages.count).reversed() {
+                        if let role = messages[i]["role"] as? String, role == "user" {
+                            updatedMessages.append(messages[i])
+                            break
+                        }
+                    }
+                }
+                
                 // 更新消息
                 requestBody["messages"] = updatedMessages
             }
-            
-            // 添加额外参数以尝试引导模型输出思考内容
-            requestBody["temperature"] = 0.8 // 稍微提高温度，增加多样性
-            requestBody["top_p"] = 0.9 // 提高采样范围
+        }
+        
+        // 在发送请求前打印消息历史进行调试
+        print("发送消息历史:")
+        for (index, message) in (requestBody["messages"] as? [[String: Any]] ?? []).enumerated() {
+            if let role = message["role"] as? String, let content = message["content"] as? String {
+                print("\(index). \(role): \(content.prefix(30))...")
+            }
         }
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
@@ -276,14 +380,17 @@ class LLMService {
                             print("接收完成，内容长度: \(contentBuilder.count), 思考内容长度: \(reasoningContentBuilder.count)")
                             
                             // 确保内容不为空
-                            if contentBuilder.isEmpty {
+                            if contentBuilder.isEmpty && receivedAnyContent {
                                 if !reasoningContentBuilder.isEmpty {
                                     // 如果内容为空但有思考内容，使用思考内容作为最终内容
                                     contentBuilder = "思考结果: \(reasoningContentBuilder)"
-                                } else if !receivedAnyContent {
-                                    // 如果既没有内容也没有思考内容
-                                    contentBuilder = "模型未生成回复，请尝试提出更具体的问题。"
+                                } else {
+                                    // 如果既没有内容也没有思考内容但已接收到数据
+                                    contentBuilder = "模型已响应但未生成有效回复，请尝试提出更具体的问题。"
                                 }
+                            } else if !receivedAnyContent {
+                                // 如果没有接收到任何内容
+                                contentBuilder = "模型未生成回复，请尝试再次提问或调整问题。"
                             }
                             
                             let finalResponse = LLMResponse(
@@ -315,14 +422,16 @@ class LLMService {
                                         contentUpdated = true
                                         receivedAnyContent = true
                                         
-                                        // 如果内容为空，尝试替代方案 - 手动分析思考过程
+                                        // 如果content字段存在且不为空，尝试从中提取思考过程
                                         if self.isThinkingEnabled && reasoningContentBuilder.isEmpty && !contentDelta.isEmpty {
-                                            // 在内容中寻找表示思考过程的部分
+                                            // 修改：如果模型没有输出reasoning_content，我们可以从正常内容中解析思考过程
                                             let contentSoFar = contentBuilder
                                             if contentSoFar.contains("让我思考") || 
                                                contentSoFar.contains("首先，") || 
                                                contentSoFar.contains("考虑到") ||
-                                               contentSoFar.contains("分析") {
+                                               contentSoFar.contains("分析") ||
+                                               contentSoFar.contains("思考") ||
+                                               contentSoFar.contains("推理") {
                                                 // 如果内容看起来像思考过程，把它放入reasoningContent
                                                 reasoningContentBuilder = contentSoFar
                                                 contentBuilder = "" // 清空content，等待最终答案
@@ -330,12 +439,23 @@ class LLMService {
                                             }
                                         }
                                     }
+                                    // 处理content为null的情况（这可能是导致空消息的原因）
+                                    if delta["content"] is NSNull {
+                                        print("检测到content为null")
+                                        // 不再将null标记为接收内容，而是忽略这个事件
+                                    }
                                     
                                     // 如果启用了思考模式，收集思考内容
-                                    if self.isThinkingEnabled, let reasoningDelta = delta["reasoning_content"] as? String {
-                                        reasoningContentBuilder += reasoningDelta
-                                        reasoningUpdated = true
-                                        receivedAnyContent = true
+                                    if self.isThinkingEnabled {
+                                        if let reasoningDelta = delta["reasoning_content"] as? String {
+                                            reasoningContentBuilder += reasoningDelta
+                                            reasoningUpdated = true
+                                            receivedAnyContent = true
+                                        } else if delta["reasoning_content"] is NSNull {
+                                            // 处理reasoning_content为null的情况
+                                            print("检测到reasoning_content为null")
+                                            // 同样，不再将null标记为接收内容
+                                        }
                                     }
                                 }
                                 // 检查message格式（非增量模式）
