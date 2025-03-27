@@ -30,7 +30,6 @@ class ChatViewModel: ObservableObject {
         let userMessage = ChatMessage(role: .user, content: inputText)
         messages.append(userMessage)
         
-        let currentInputText = inputText
         inputText = ""
         isLoading = true
         errorMessage = nil

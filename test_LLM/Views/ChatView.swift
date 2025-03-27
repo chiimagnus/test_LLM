@@ -28,7 +28,7 @@ struct ChatView: View {
                 }
             }
             .padding()
-            .background(Color(UIColor.systemBackground))
+            .background(Color.primary.opacity(0.1))
             
             // 聊天消息列表
             ScrollViewReader { scrollView in
@@ -62,7 +62,7 @@ struct ChatView: View {
             HStack {
                 TextField("输入消息...", text: $viewModel.inputText)
                     .padding()
-                    .background(Color(UIColor.secondarySystemBackground))
+                    .background(Color.secondary.opacity(0.1))
                     .cornerRadius(12)
                     .disabled(viewModel.isLoading)
                     .onSubmit {
@@ -113,7 +113,7 @@ struct MessageView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(message.content)
                         .padding()
-                        .background(Color(UIColor.secondarySystemBackground))
+                        .background(Color.secondary.opacity(0.1))
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                     
                     Text("硅基流动 AI")
