@@ -12,15 +12,15 @@ struct ContentView: View {
             .tabItem {
                 Label("聊天", systemImage: "message.fill")
             }
-//            .tag(0)
-//            
-//            NavigationStack {
-//                ActivityView()
-//            }
-//            .tabItem {
-//                Label("活动记录", systemImage: "list.bullet.clipboard.fill")
-//            }
-//            .tag(1)
+            .tag(0)
+            
+            NavigationStack {
+                ActivityView()
+            }
+            .tabItem {
+                Label("活动记录", systemImage: "list.bullet.clipboard.fill")
+            }
+            .tag(1)
         }
     }
 }

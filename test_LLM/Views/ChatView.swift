@@ -66,19 +66,19 @@ struct ChatView: View {
                     .padding()
                 }
                 // 监听消息数组变化，滚动到最新消息
-                .onChange(of: viewModel.messages.count) { _ in
+                .onChange(of: viewModel.messages.count) { oldValue, newValue in
                     withAnimation {
                         scrollView.scrollTo("bottom", anchor: .bottom)
                     }
                 }
                 // 监听流式内容变化，滚动到流式消息
-                .onChange(of: viewModel.streamingContent) { _ in
+                .onChange(of: viewModel.streamingContent) { oldValue, newValue in
                     withAnimation {
                         scrollView.scrollTo("streaming", anchor: .bottom)
                     }
                 }
                 // 当有新的流式消息时滚动到底部
-                .onChange(of: viewModel.streamingMessage != nil) { _ in
+                .onChange(of: viewModel.streamingMessage != nil) { oldValue, newValue in
                     withAnimation {
                         scrollView.scrollTo("bottom", anchor: .bottom)
                     }

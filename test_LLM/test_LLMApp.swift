@@ -12,7 +12,8 @@ struct test_LLMApp: App {
             let schema = Schema([
                 ApiKeyConfig.self,
                 PersistentChatMessage.self,
-                ChatSession.self
+                ChatSession.self,
+                ActivityRecord.self
             ])
             
             let modelConfiguration = ModelConfiguration(

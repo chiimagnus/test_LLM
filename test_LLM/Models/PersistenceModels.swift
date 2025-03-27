@@ -58,3 +58,19 @@ final class ChatSession {
         self.updatedAt = Date()
     }
 }
+
+// 用户活动记录持久化模型
+@Model
+final class ActivityRecord {
+    var id: UUID
+    var content: String
+    var timestamp: Date
+    var tags: [String]
+    
+    init(id: UUID = UUID(), content: String, timestamp: Date = Date(), tags: [String] = []) {
+        self.id = id
+        self.content = content
+        self.timestamp = timestamp
+        self.tags = tags
+    }
+}
