@@ -1,12 +1,21 @@
 import Foundation
 
-class SiliconFlowService {
+class SiliconFlowService: NSObject {
     private let apiUrl = "https://api.siliconflow.cn/v1/chat/completions"
     private var apiKey: String = ""
+    
+    // 用于流式请求的回调
+    private var onReceiveContent: ((String) -> Void)?
+    private var onRequestComplete: ((Result<Void, Error>) -> Void)?
+    
+    // 用于构建流式响应
+    private var receivedData = Data()
+    private var buffer = ""
     
     // 初始化方法，设置API密钥
     init(apiKey: String) {
         self.apiKey = apiKey
+        super.init()
     }
     
     // 发送流式聊天请求并逐步处理响应
@@ -15,6 +24,14 @@ class SiliconFlowService {
         onReceive: @escaping (String) -> Void,
         onComplete: @escaping (Result<Void, Error>) -> Void
     ) {
+        // 保存回调
+        self.onReceiveContent = onReceive
+        self.onRequestComplete = onComplete
+        
+        // 重置数据缓冲区
+        self.receivedData = Data()
+        self.buffer = ""
+        
         // 创建流式请求参数
         let request = SiliconFlowRequest.createDefault(messages: messages)
         
@@ -30,72 +47,11 @@ class SiliconFlowService {
             let requestData = try encoder.encode(request)
             urlRequest.httpBody = requestData
             
-            print("请求内容: \(String(data: requestData, encoding: .utf8) ?? "")")
+            print("发送流式请求...")
             
-            // 创建URLSession任务
-            let task = URLSession.shared.dataTask(with: urlRequest) { data, response, error in
-                // 处理错误
-                if let error = error {
-                    onComplete(.failure(error))
-                    return
-                }
-                
-                // 处理响应
-                guard let data = data else {
-                    onComplete(.failure(NSError(domain: "SiliconFlowService", code: 0, userInfo: [NSLocalizedDescriptionKey: "No data received"])))
-                    return
-                }
-                
-                // 将数据转换为字符串
-                if let dataString = String(data: data, encoding: .utf8) {
-                    print("原始响应: \(dataString)")
-                    
-                    // 处理SSE格式的响应
-                    let events = self.parseSSEEvents(dataString)
-                    
-                    if events.isEmpty {
-                        // 如果事件为空，可能是API格式问题，尝试作为普通响应处理
-                        onComplete(.failure(NSError(domain: "SiliconFlowService", code: 3, userInfo: [NSLocalizedDescriptionKey: "No valid SSE events found"])))
-                        return
-                    }
-                    
-                    for event in events {
-                        do {
-                            // 检查是否是完成消息
-                            if event == "[DONE]" {
-                                onComplete(.success(()))
-                                return
-                            }
-                            
-                            // 解析JSON响应
-                            if let eventData = event.data(using: .utf8) {
-                                let streamResponse = try JSONDecoder().decode(SiliconFlowStreamResponse.self, from: eventData)
-                                
-                                // 检查是否是完成消息
-                                if streamResponse.isDone {
-                                    onComplete(.success(()))
-                                    return
-                                }
-                                
-                                // 提取内容片段并发送
-                                if let content = streamResponse.choices?.first?.delta.content, !content.isEmpty {
-                                    onReceive(content)
-                                }
-                            }
-                        } catch {
-                            print("解析事件错误: \(error), 事件: \(event)")
-                            // 继续处理下一个事件，不中断流
-                        }
-                    }
-                    
-                    // 所有事件处理完成
-                    onComplete(.success(()))
-                } else {
-                    onComplete(.failure(NSError(domain: "SiliconFlowService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to decode response data"])))
-                }
-            }
-            
-            // 启动任务
+            // 创建自定义的URLSession，使用delegate处理流式数据
+            let session = URLSession(configuration: .default, delegate: self, delegateQueue: .main)
+            let task = session.dataTask(with: urlRequest)
             task.resume()
             
         } catch {
@@ -104,27 +60,82 @@ class SiliconFlowService {
         }
     }
     
-    // 改进的SSE事件解析
-    private func parseSSEEvents(_ sseText: String) -> [String] {
-        var events: [String] = []
-        let lines = sseText.components(separatedBy: "\n")
-        var currentEvent = ""
-        
-        for line in lines {
-            if line.hasPrefix("data: ") {
-                let data = line.dropFirst(6) // 去掉 "data: "
-                let dataString = String(data)
-                
-                // 特殊处理 [DONE] 消息
-                if dataString.trimmingCharacters(in: .whitespacesAndNewlines) == "[DONE]" {
-                    events.append("[DONE]")
-                } else if !dataString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // 如果不是空事件，添加到事件列表
-                    events.append(dataString)
+    // 处理SSE格式的行
+    private func processSSELine(_ line: String) {
+        if line.hasPrefix("data: ") {
+            let dataContent = line.dropFirst(6) // 移除 "data: " 前缀
+            let content = String(dataContent)
+            
+            // 检查是否是结束标记
+            if content.trimmingCharacters(in: .whitespacesAndNewlines) == "[DONE]" {
+                print("收到[DONE]标记，流式请求完成")
+                onRequestComplete?(.success(()))
+                return
+            }
+            
+            // 解析JSON数据
+            do {
+                if let data = content.data(using: .utf8) {
+                    let response = try JSONDecoder().decode(SiliconFlowStreamResponse.self, from: data)
+                    
+                    // 提取delta内容
+                    if let deltaContent = response.choices?.first?.delta.content, !deltaContent.isEmpty {
+                        print("收到片段: '\(deltaContent)'")
+                        onReceiveContent?(deltaContent)
+                    }
                 }
+            } catch {
+                print("解析流式数据失败: \(error), 数据: \(content)")
+                // 继续处理，不中断流
             }
         }
+    }
+}
+
+// MARK: - URLSessionDataDelegate
+extension SiliconFlowService: URLSessionDataDelegate {
+    // 接收部分数据时调用
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        // 累积接收到的数据
+        receivedData.append(data)
         
-        return events
+        // 尝试将新数据转换为字符串
+        if let newString = String(data: data, encoding: .utf8) {
+            // 添加到缓冲区
+            buffer.append(newString)
+            
+            // 按行分割缓冲区内容
+            let lines = buffer.components(separatedBy: "\n")
+            
+            // 处理除最后一行外的所有行（最后一行可能不完整）
+            if lines.count > 1 {
+                for i in 0..<lines.count-1 {
+                    let line = lines[i]
+                    if !line.isEmpty {
+                        processSSELine(line)
+                    }
+                }
+                
+                // 保留可能不完整的最后一行
+                buffer = lines.last ?? ""
+            }
+        }
+    }
+    
+    // 当数据任务完成时调用
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            print("流式请求出错: \(error)")
+            onRequestComplete?(.failure(error))
+            return
+        }
+        
+        // 处理缓冲区中剩余的内容
+        if !buffer.isEmpty {
+            processSSELine(buffer)
+        }
+        
+        print("流式请求正常结束")
+        onRequestComplete?(.success(()))
     }
 } 

@@ -34,7 +34,7 @@ struct ChatView: View {
             ScrollViewReader { scrollView in
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        // 显示正常消息
+                        // 显示历史消息
                         ForEach(viewModel.messages.filter { $0.role != .system }) { message in
                             MessageView(message: message)
                                 .id(message.id)
@@ -44,20 +44,32 @@ struct ChatView: View {
                         if let streamingMessage = viewModel.streamingMessage {
                             MessageView(message: streamingMessage, isStreaming: true)
                                 .id("streaming")
+                                .animation(.default, value: streamingMessage.content)
                         }
+                        
+                        // 空视图，用于自动滚动到底部
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
                     }
                     .padding()
                 }
-                .onChange(of: viewModel.messages) { messages in
-                    if let lastMessage = messages.last {
-                        withAnimation {
-                            scrollView.scrollTo(lastMessage.id, anchor: .bottom)
-                        }
+                // 监听消息数组变化，滚动到最新消息
+                .onChange(of: viewModel.messages.count) { _ in
+                    withAnimation {
+                        scrollView.scrollTo("bottom", anchor: .bottom)
                     }
                 }
-                .onChange(of: viewModel.streamingMessage?.content) { _ in
+                // 监听流式内容变化，滚动到流式消息
+                .onChange(of: viewModel.streamingContent) { _ in
                     withAnimation {
                         scrollView.scrollTo("streaming", anchor: .bottom)
+                    }
+                }
+                // 当有新的流式消息时滚动到底部
+                .onChange(of: viewModel.streamingMessage != nil) { _ in
+                    withAnimation {
+                        scrollView.scrollTo("bottom", anchor: .bottom)
                     }
                 }
             }
@@ -136,6 +148,8 @@ struct MessageView: View {
                                 }
                             }
                         )
+                        // 为消息内容添加动画效果
+                        .animation(.default, value: message.content)
                     
                     HStack {
                         Text("硅基流动 AI")
